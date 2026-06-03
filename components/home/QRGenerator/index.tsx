@@ -110,7 +110,8 @@ async function buildCanvas(
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context not supported");;
 
   if (!bgTransparent) {
     ctx.fillStyle = bg;
@@ -267,25 +268,29 @@ const QRGenerator = () => {
   const [frameType, setFrameType] = useState<FrameType>("none");
   const [logoDataUrl, setLogoDataUrl] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string>("");
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  const activeType = qrTypes.find((t) => t.id === activeTypeId)!;
+  const activeType = qrTypes.find((t) => t.id === activeTypeId) ?? qrTypes[0];
 
   const generateQR = useCallback(async () => {
     const data = formatQRData(activeType, fields);
     if (!data.trim()) {
       setQrDataURL("");
       setSvgString("");
+      setGenerateError("");
       return;
     }
     setIsGenerating(true);
+    setGenerateError("");
     try {
       const canvas = await buildCanvas(data, fgColor, bgColor, bgTransparent, dotShape, frameType, logoDataUrl);
       setQrDataURL(canvas.toDataURL("image/png"));
       setSvgString(buildSvg(data, fgColor, bgColor, bgTransparent, dotShape, frameType, logoDataUrl));
-    } catch {
+    } catch (err) {
       setQrDataURL("");
       setSvgString("");
+      setGenerateError(err instanceof Error ? err.message : "Failed to generate QR code");
     } finally {
       setIsGenerating(false);
     }
@@ -328,9 +333,24 @@ const QRGenerator = () => {
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setGenerateError("Please upload an image file (PNG, JPG, SVG)");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setGenerateError("Logo must be smaller than 2 MB");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setLogoDataUrl(ev.target?.result as string);
+      const result = ev.target?.result;
+      if (typeof result === "string") {
+        setLogoDataUrl(result);
+        setGenerateError("");
+      }
+    };
+    reader.onerror = () => {
+      setGenerateError("Failed to read logo file");
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -347,6 +367,8 @@ const QRGenerator = () => {
             <button
               key={type.id}
               onClick={() => switchType(type.id)}
+              aria-label={`${type.label} QR code`}
+              aria-pressed={activeTypeId === type.id}
               className={`flex flex-col items-center gap-1 px-4 py-3 text-xs font-medium transition-colors border-b-2 whitespace-nowrap ${
                 activeTypeId === type.id
                   ? "border-primary text-primary bg-primary-light"
@@ -364,7 +386,7 @@ const QRGenerator = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
         {/* Left: form + design */}
-        <div className="p-6 border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col gap-5 overflow-y-auto max-h-[680px]">
+        <div className="p-6 border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col gap-5 overflow-y-auto lg:max-h-[680px]">
           {/* Type-specific fields */}
           <AnimatePresence mode="wait">
             <motion.div
@@ -442,12 +464,13 @@ const QRGenerator = () => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setBgTransparent((v) => !v)}
+                  aria-label={bgTransparent ? "Switch to solid background" : "Switch to transparent background"}
+                  aria-pressed={bgTransparent}
                   className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-colors ${
                     bgTransparent
                       ? "border-primary bg-primary-light text-primary"
                       : "border-gray-200 text-tc-muted hover:border-gray-300"
                   }`}
-                  title="Transparent background"
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <rect x="1" y="1" width="5" height="5" fill="currentColor" opacity="0.3" />
@@ -565,6 +588,8 @@ const QRGenerator = () => {
                 <button
                   key={f.id}
                   onClick={() => setFrameType(f.id)}
+                  aria-label={`${f.label} frame`}
+                  aria-pressed={frameType === f.id}
                   className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border-2 transition-all ${
                     frameType === f.id
                       ? "border-primary bg-primary-light text-primary"
@@ -631,6 +656,8 @@ const QRGenerator = () => {
                 <button
                   key={s.id}
                   onClick={() => setDotShape(s.id)}
+                  aria-label={`${s.label} dots`}
+                  aria-pressed={dotShape === s.id}
                   className={`flex flex-col items-center gap-1.5 py-2 px-1 rounded-xl border-2 transition-all ${
                     dotShape === s.id
                       ? "border-primary bg-primary-light text-primary"
@@ -658,6 +685,7 @@ const QRGenerator = () => {
                 </div>
                 <button
                   onClick={() => setLogoDataUrl("")}
+                  aria-label="Remove logo"
                   className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-tc-muted hover:text-red-500 hover:bg-red-50 transition-colors"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -669,6 +697,7 @@ const QRGenerator = () => {
             ) : (
               <button
                 onClick={() => logoInputRef.current?.click()}
+                aria-label="Upload logo image"
                 className="w-full flex flex-col items-center gap-2 py-5 border-2 border-dashed border-gray-200 rounded-xl text-tc-muted hover:border-primary hover:text-primary hover:bg-primary-light transition-all"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -692,6 +721,16 @@ const QRGenerator = () => {
 
         {/* Right: preview */}
         <div className="p-6 flex flex-col items-center gap-5 bg-gray-50/50">
+          {generateError && (
+            <div role="alert" className="w-full max-w-[280px] flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              {generateError}
+            </div>
+          )}
           <div className="flex items-center justify-center w-full aspect-square max-w-[280px] bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             {isGenerating ? (
               <div className="flex flex-col items-center gap-3 text-tc-muted">
@@ -726,6 +765,7 @@ const QRGenerator = () => {
             <button
               onClick={downloadPNG}
               disabled={!hasData}
+              aria-label="Download QR code as PNG"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-primary hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -738,6 +778,7 @@ const QRGenerator = () => {
             <button
               onClick={downloadSVG}
               disabled={!hasData}
+              aria-label="Download QR code as SVG"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-primary bg-primary-medium hover:bg-blue-200 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
