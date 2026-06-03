@@ -47,8 +47,6 @@ const MainLayout = ({
         <meta name="twitter:description" content={description} />
         <meta name="twitter:image" content={OG_IMAGE} />
 
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
       </Head>
       <Navigation />
       <main>{children}</main>
